@@ -10,6 +10,7 @@ import android.util.AttributeSet
 import android.util.Log
 import android.view.LayoutInflater
 import android.view.MotionEvent
+import android.view.View
 import android.view.ViewGroup
 import android.widget.MediaController
 import androidx.constraintlayout.widget.ConstraintLayout
@@ -33,7 +34,8 @@ class YVideo @JvmOverloads constructor(
         set(value) {
             field = value
             video.setVideoPath(field)
-            isExpanded = true
+            show()
+            video.start()
         }
 
     var isExpanded: Boolean = true
@@ -75,6 +77,16 @@ class YVideo @JvmOverloads constructor(
     private var layoutConfigured = false
     private var mediaControllerConfigured = false
 
+    fun show() {
+        isExpanded = true
+        visibility = View.VISIBLE
+    }
+
+    fun dismiss() {
+        video.stopPlayback()
+        visibility = View.GONE
+    }
+
     init {
         LayoutInflater.from(context).inflate(R.layout.fragment_video, this, true)
 
@@ -82,7 +94,6 @@ class YVideo @JvmOverloads constructor(
 
         video.setMediaController(mediaController)
         video.keepScreenOn = true
-        video.start()
 
         video.setOnPreparedListener {
             if(!mediaControllerConfigured) {
@@ -197,11 +208,12 @@ class YVideo @JvmOverloads constructor(
                     true
                 }
                 MotionEvent.ACTION_UP -> {
-                    val middle = parent.height / 2
                     val startAt = video.height / 2
-                    val y = video.marginTop + startAt
 
-//                    if(scrollDirection == VERTICAL_SCROLL) {
+                    if(scrollDirection == VERTICAL_SCROLL) {
+                        val middle = parent.height / 2
+                        val y = video.marginTop + startAt
+
                         val mOldY = oldY
                         val mNewY = newY
                         val diff = if (mOldY != null && mNewY != null) {
@@ -210,15 +222,21 @@ class YVideo @JvmOverloads constructor(
                             null
                         }
 
-                        //TODO: scrollDirection == VERTICAL_SCROLL is temporary, only for work when the horizontal thing isnt done yet
-                        isExpanded = if (diff != null && diff.absoluteValue > forceToInvertState && scrollDirection == VERTICAL_SCROLL) {
+                        isExpanded = if (diff != null && diff.absoluteValue > forceToInvertState) {
                             !isExpanded
                         } else {
                             y < middle
                         }
-//                    } else if(scrollDirection == HORIZONTAL_SCROLL) {
-//                        //TODO: acao quando ele ta scrollando horizontalmente
-//                    }
+                    } else if(scrollDirection == HORIZONTAL_SCROLL) {
+                        val middle = parent.width / 3
+                        val x = video.marginStart + startAt
+
+                        if(x < middle) {
+                            dismiss()
+                        } else {
+                            isExpanded = false
+                        }
+                    }
 
                     oldX = null
                     oldY = null
@@ -268,34 +286,64 @@ class YVideo @JvmOverloads constructor(
     private fun returnToOriginalPosition(expand: Boolean) {
         val parent = parent as ViewGroup
 
-        var y = video.marginTop
-        val maxY = parent.height - video.height - maxMarginBottom.toInt()
+        var progress = 0F
+        var endAt = 0F
+        val mScrollDirection = if(scrollDirection == -1) VERTICAL_SCROLL else scrollDirection
 
-        if(y > maxY) {
-            y = maxY
-        }
+        if(mScrollDirection == VERTICAL_SCROLL) {
 
-        val progress = y.toFloat() / maxY
+            var y = video.marginTop
+            val maxY = parent.height - video.height - maxMarginBottom.toInt()
 
-        val endAt = if(expand) {
-            0F
-        } else {
-            1F
+            if (y > maxY) {
+                y = maxY
+            }
+
+            progress = y.toFloat() / maxY
+
+            endAt = if (expand) {
+                0F
+            } else {
+                1F
+            }
+        } else if(mScrollDirection == HORIZONTAL_SCROLL) {
+            var x = maxMarginStart.toInt() - shiftBy.toInt()
+            val maxX = parent.width - video.width - maxMarginEnd.toInt()
+
+            if (x > maxX) {
+                x = maxX
+            }
+
+            progress = x.toFloat() / maxX
+
+            endAt = 1F
         }
 
         val lp = video.layoutParams as LayoutParams
 
         ValueAnimator.ofFloat(progress, endAt).apply {
+            val maxX = parent.width - video.width - maxMarginEnd.toInt()
+            val grow = shiftBy.toInt() + video.width / 4
             addUpdateListener {
-                val maxYY = parent.height - video.height - maxMarginBottom.toInt()
+                val maxY = parent.height - video.height - maxMarginBottom.toInt()
                 val newProgress = it.animatedValue as Float
 
-                lp.setMargins(
-                    shiftBy.toInt() + (newProgress * maxMarginStart).toInt(),
-                    (newProgress * maxYY).toInt(),
-                    (newProgress * maxMarginEnd).toInt(),
-                    (newProgress * maxMarginBottom).toInt()
-                )
+                if(mScrollDirection == VERTICAL_SCROLL) {
+                    lp.setMargins(
+                        (newProgress * maxMarginStart).toInt(),
+                        (newProgress * maxY).toInt(),
+                        (newProgress * maxMarginEnd).toInt(),
+                        (newProgress * maxMarginBottom).toInt()
+                    )
+                } else if(mScrollDirection == HORIZONTAL_SCROLL) {
+                    lp.setMargins(
+                        (newProgress * maxX).toInt(),
+                        maxY,
+                        (grow + maxMarginEnd).toInt() - (newProgress * (grow) ).toInt(),
+                        maxMarginBottom.toInt()
+                    )
+                }
+
                 video.layoutParams = lp
 
                 videoDetails.alpha = 1F - newProgress * 1F
@@ -313,7 +361,7 @@ class YVideo @JvmOverloads constructor(
                 })
             }
 
-            duration = 200L
+            duration = 1000L
 
             start()
         }
