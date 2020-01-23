@@ -27,7 +27,7 @@
         android:text="TITULO DO VIDEO"
         android:textSize="24sp"
         android:textStyle="bold"
-        android:textColor="#222"
+        android:textColor="#DDD"
         android:textAlignment="center"/>
 
 </LinearLayout>

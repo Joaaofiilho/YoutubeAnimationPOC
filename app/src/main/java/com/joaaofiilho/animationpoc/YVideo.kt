@@ -1,17 +1,13 @@
 package com.joaaofiilho.animationpoc
 
-import android.animation.Animator
-import android.animation.AnimatorListenerAdapter
 import android.animation.ValueAnimator
 import android.content.Context
 import android.graphics.Canvas
-import android.graphics.Color
 import android.util.AttributeSet
 import android.util.Log
 import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
-import android.view.ViewGroup
 import android.widget.MediaController
 import androidx.constraintlayout.widget.ConstraintLayout
 import androidx.core.view.marginStart
@@ -41,31 +37,50 @@ class YVideo @JvmOverloads constructor(
     var isExpanded: Boolean = true
         set(value) {
             field = value
-            returnToOriginalPosition(field)
+            animateToState(field)
         }
+
+    /**
+     *  How much the user dragged the video in a range of 0 to 1. */
+    private var vProgress: Float = 0F
+    private var hProgress: Float = 0F
 
     private var startAtY: Float = 0F
     private var startAtX: Float = 0F
 
+    /***/
+    private var maxX: Int = 0
+    private var maxY: Int = 0
+
     /**
      * Used when the user scrolls horizontally*/
-    private var shiftBy: Float = 0F
+    private var shiftBy: Int = 0
 
+    /**
+     * Variables used to calculate the velocity the user dragged the video.
+     * This is used to change the video position when the velocity is above certain value.*/
     private var newX: Float? = null
     private var oldX: Float? = null
-
     private var newY: Float? = null
     private var oldY: Float? = null
 
-    private var maxMarginStart: Float = 0F
+    /**
+     * Style values to determinate where the video should end.*/
+    private var endMarginEnd: Float = 0F
 
-    private var maxMarginEnd: Float = 0F
-
-    private var maxMarginBottom: Float = 0F
+    private var endMarginBottom: Float = 0F
 
     private var mediaController: MediaController
 
     private var forceToInvertState: Float = 15F
+
+    private var endVideoWidth: Int = 0
+        set(value) {
+            field = value
+            endVideoHeight = (field * (9 / 16F)).toInt()
+        }
+
+    private var endVideoHeight: Int = 0
 
     /**
      * The direction the scroll is going.
@@ -74,8 +89,15 @@ class YVideo @JvmOverloads constructor(
      * 1 - Vertical */
     private var scrollDirection = -1
 
-    private var layoutConfigured = false
     private var mediaControllerConfigured = false
+
+    /**
+     * Listeners */
+    private var _trackVertical = { _: Float -> }
+    private var _trackHorizontal = { _: Float -> }
+    private var _onSwipeUp = {}
+    private var _onSwipeDown = {}
+    private var _onReleased = { _: Boolean -> }
 
     fun show() {
         isExpanded = true
@@ -90,24 +112,64 @@ class YVideo @JvmOverloads constructor(
     init {
         LayoutInflater.from(context).inflate(R.layout.fragment_video, this, true)
 
+        endMarginEnd = 8 * resources.displayMetrics.density
+        endMarginBottom = 8 * resources.displayMetrics.density
+
         mediaController = MediaController(context)
 
         video.setMediaController(mediaController)
         video.keepScreenOn = true
 
         video.setOnPreparedListener {
-            if(!mediaControllerConfigured) {
+            if (!mediaControllerConfigured) {
                 mediaController.setAnchorView(video)
                 mediaControllerConfigured = true
             }
         }
 
-        video.setOnTouchListener { v, event ->
-            val parent = parent as ViewGroup
-            val maxX = parent.width - video.width - maxMarginEnd.toInt()
-            val maxY = parent.height - video.height - maxMarginBottom.toInt()
+        trackVertical { progress ->
+            val lp = video.layoutParams as LayoutParams
 
-            when(event.action) {
+            lp.setMargins(
+                (progress * maxX).toInt(),
+                (progress * maxY).toInt(),
+                (progress * endMarginEnd).toInt(),
+                (progress * endMarginBottom).toInt()
+            )
+            video.layoutParams = lp
+
+            videoDetails.alpha = 1F - progress * 1F
+        }
+
+        trackHorizontal { progress ->
+            val lp = video.layoutParams as LayoutParams
+
+            shiftBy = (progress * maxX).toInt()
+
+            lp.setMargins(
+                maxX - shiftBy,
+                maxY,
+                (endMarginEnd + shiftBy).toInt(),
+                endMarginBottom.toInt()
+            )
+
+            video.layoutParams = lp
+        }
+
+        onSwipeUp {
+            isExpanded = true
+        }
+
+        onSwipeDown {
+            isExpanded = false
+        }
+
+        onReleased { shouldExpand ->
+            isExpanded = shouldExpand
+        }
+
+        video.setOnTouchListener { v, event ->
+            when (event.action) {
                 MotionEvent.ACTION_MOVE -> {
                     mediaController.hide()
                     oldY = newY
@@ -119,8 +181,9 @@ class YVideo @JvmOverloads constructor(
                     val x = (video.marginStart + event.x - startAtX).toInt()
                     val y = (video.marginTop + event.y - startAtY).toInt()
 
-                    if(isExpanded) {
-                        scrollDirection = 1
+                    //Discovering in which direction the user is scrolling
+                    if (isExpanded) {
+                        scrollDirection = VERTICAL_SCROLL
                     } else {
 
                         val mOldX = oldX
@@ -153,65 +216,33 @@ class YVideo @JvmOverloads constructor(
                     }
 
                     //how much drag should be given to the video starts scrolling
-                    var payload = if(scrollDirection == VERTICAL_SCROLL) {
+                    var payload = if (scrollDirection == VERTICAL_SCROLL) {
                         video.height / 4
                     } else {
                         video.width / 4
                     }
 
-                    if(!isExpanded) {
+                    if (!isExpanded) {
                         payload *= -1
                     }
 
-                    Log.v("EVENT_X", "x = $x | initial = ${1 + payload} | final = $maxX")
-                    Log.v("EQUAL_Y", "y = $x | maxY = $maxY")
-
-                    if(scrollDirection == VERTICAL_SCROLL) {
+                    if (scrollDirection == VERTICAL_SCROLL) {
                         if (y in 1 + payload until maxY + payload) {
-                            val progress = (y.toFloat() - payload) / maxY
-
-                            val lp = video.layoutParams as LayoutParams
-
-                            lp.setMargins(
-                                (progress * maxMarginStart).toInt(),
-                                (progress * maxY).toInt(),
-                                (progress * maxMarginEnd).toInt(),
-                                (progress * maxMarginBottom).toInt()
-                            )
-                            video.layoutParams = lp
-
-                            videoDetails.alpha = 1F - progress * 1F
+                            vProgress = (y.toFloat() - payload) / maxY
+                            _trackVertical(vProgress)
                         }
-                    } else if(scrollDirection == HORIZONTAL_SCROLL) {
+                    } else if (scrollDirection == HORIZONTAL_SCROLL) {
                         if (x in 1 + payload until maxX + payload) {
-                            val progress = 1F - ((x.toFloat() - payload) / maxX)
-
-                            Log.v("PROGRESS_X", progress.toString())
-
-
-                            val lp = video.layoutParams as LayoutParams
-
-                            shiftBy = progress * maxMarginStart
-
-                            lp.setMargins(
-                                (maxMarginStart - shiftBy).toInt(),
-                                maxY,
-                                (maxMarginEnd + shiftBy).toInt(),
-                                maxMarginBottom.toInt()
-                            )
-
-                            video.layoutParams = lp
-
+                            hProgress = 1F - ((x.toFloat() - payload) / maxX)
+                            _trackHorizontal(hProgress)
                         }
                     }
 
                     true
                 }
                 MotionEvent.ACTION_UP -> {
-                    val startAt = video.height / 2
-
-                    if(scrollDirection == VERTICAL_SCROLL) {
-                        val middle = parent.height / 2
+                    if (scrollDirection == VERTICAL_SCROLL) {
+                        val startAt = video.height / 2
                         val y = video.marginTop + startAt
 
                         val mOldY = oldY
@@ -222,19 +253,25 @@ class YVideo @JvmOverloads constructor(
                             null
                         }
 
-                        isExpanded = if (diff != null && diff.absoluteValue > forceToInvertState) {
-                            !isExpanded
+                        if (diff != null && diff.absoluteValue > forceToInvertState) {
+                            if (isExpanded) {
+                                _onSwipeDown()
+                            } else {
+                                _onSwipeUp()
+                            }
                         } else {
-                            y < middle
+                            val middle = containerVideo.height / 2
+                            _onReleased(y <= middle)
                         }
-                    } else if(scrollDirection == HORIZONTAL_SCROLL) {
-                        val middle = parent.width / 3
+                    } else if (scrollDirection == HORIZONTAL_SCROLL) {
+                        val startAt = video.width / 2
+                        val middle = containerVideo.width / 3
                         val x = video.marginStart + startAt
 
-                        if(x < middle) {
+                        if (x < middle) {
                             dismiss()
                         } else {
-                            isExpanded = false
+                            _onReleased(false)
                         }
                     }
 
@@ -246,14 +283,15 @@ class YVideo @JvmOverloads constructor(
                     false
                 }
                 MotionEvent.ACTION_DOWN -> {
-                    if(mediaController.isShowing) {
+                    if (mediaController.isShowing) {
                         mediaController.hide()
-                    } else if(isExpanded){
+                    } else if (isExpanded) {
                         mediaController.show(4000)
                     }
 
                     startAtX = event.x
                     startAtY = event.y
+
                     true
                 }
                 else -> false
@@ -266,99 +304,78 @@ class YVideo @JvmOverloads constructor(
 
         mediaController.setAnchorView(video)
 
-        if(!layoutConfigured) {
-            maxMarginStart = ((parent as ViewGroup).width / 2).toFloat()
-            maxMarginEnd = 8 * resources.displayMetrics.density
-            maxMarginBottom = 8 * resources.displayMetrics.density
+        if (maxX <= 0) {
+            endVideoWidth = containerVideo.width / 2
+            maxX = containerVideo.width - endVideoWidth - endMarginEnd.toInt()
+        }
 
-            layoutConfigured = true
+        if (maxY <= 0) {
+            endVideoWidth = containerVideo.width / 2
+            maxY = containerVideo.height - endVideoHeight - endMarginBottom.toInt()
         }
     }
 
     override fun draw(canvas: Canvas?) {
         super.draw(canvas)
-        if(!mediaControllerConfigured) {
+        if (!mediaControllerConfigured) {
             mediaController.setAnchorView(video)
             mediaControllerConfigured = true
         }
     }
 
-    private fun returnToOriginalPosition(expand: Boolean) {
-        val parent = parent as ViewGroup
+    private fun trackVertical(event: (progress: Float) -> Unit) {
+        _trackVertical = event
+    }
 
-        var progress = 0F
-        var endAt = 0F
-        val mScrollDirection = if(scrollDirection == -1) VERTICAL_SCROLL else scrollDirection
+    private fun trackHorizontal(event: (progress: Float) -> Unit) {
+        _trackHorizontal = event
+    }
 
-        if(mScrollDirection == VERTICAL_SCROLL) {
+    private fun onSwipeUp(event: () -> Unit) {
+        _onSwipeUp = event
+    }
 
-            var y = video.marginTop
-            val maxY = parent.height - video.height - maxMarginBottom.toInt()
+    private fun onSwipeDown(event: () -> Unit) {
+        _onSwipeDown = event
+    }
 
-            if (y > maxY) {
-                y = maxY
-            }
+    private fun onReleased(event: (shouldExpand: Boolean) -> Unit) {
+        _onReleased = event
+    }
 
-            progress = y.toFloat() / maxY
+    private fun animateToState(expand: Boolean) {
+        val mScrollDirection = if (scrollDirection == -1) VERTICAL_SCROLL else scrollDirection
+        val initialProgress = if (scrollDirection == VERTICAL_SCROLL) vProgress else 0F
 
-            endAt = if (expand) {
-                0F
-            } else {
-                1F
-            }
-        } else if(mScrollDirection == HORIZONTAL_SCROLL) {
-            var x = maxMarginStart.toInt() - shiftBy.toInt()
-            val maxX = parent.width - video.width - maxMarginEnd.toInt()
-
-            if (x > maxX) {
-                x = maxX
-            }
-
-            progress = x.toFloat() / maxX
-
-            endAt = 1F
-        }
+        val endAt = if (expand) 0F else 1F
 
         val lp = video.layoutParams as LayoutParams
 
-        ValueAnimator.ofFloat(progress, endAt).apply {
-            val maxX = parent.width - video.width - maxMarginEnd.toInt()
-            val grow = shiftBy.toInt() + video.width / 4
+        ValueAnimator.ofFloat(initialProgress, endAt).apply {
             addUpdateListener {
-                val maxY = parent.height - video.height - maxMarginBottom.toInt()
-                val newProgress = it.animatedValue as Float
+                val progress = it.animatedValue as Float
 
-                if(mScrollDirection == VERTICAL_SCROLL) {
+                if (mScrollDirection == VERTICAL_SCROLL) {
+
                     lp.setMargins(
-                        (newProgress * maxMarginStart).toInt(),
-                        (newProgress * maxY).toInt(),
-                        (newProgress * maxMarginEnd).toInt(),
-                        (newProgress * maxMarginBottom).toInt()
+                        (progress * maxX).toInt(),
+                        (progress * maxY).toInt(),
+                        (progress * endMarginEnd).toInt(),
+                        (progress * endMarginBottom).toInt()
                     )
-                } else if(mScrollDirection == HORIZONTAL_SCROLL) {
+
+                    videoDetails.alpha = 1F - progress * 1F
+                } else {
+
                     lp.setMargins(
-                        (newProgress * maxX).toInt(),
+                        (maxX - shiftBy) + (progress * shiftBy).toInt(),
                         maxY,
-                        (grow + maxMarginEnd).toInt() - (newProgress * (grow) ).toInt(),
-                        maxMarginBottom.toInt()
+                        (shiftBy + endMarginEnd).toInt() - (progress * shiftBy).toInt(),
+                        endMarginBottom.toInt()
                     )
                 }
 
                 video.layoutParams = lp
-
-                videoDetails.alpha = 1F - newProgress * 1F
-            }
-
-            if(!expand) {
-                addListener(object : AnimatorListenerAdapter() {
-                    override fun onAnimationEnd(animation: Animator?, isReverse: Boolean) {
-                        super.onAnimationEnd(animation, isReverse)
-                        shiftBy = 0F
-//                        mediaController = MediaController(video.context)
-//                        mediaController.setAnchorView(video)
-//                        video.setMediaController(mediaController)
-                    }
-                })
             }
 
             duration = 300L
