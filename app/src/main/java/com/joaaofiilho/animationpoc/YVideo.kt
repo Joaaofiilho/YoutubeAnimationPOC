@@ -361,7 +361,7 @@ class YVideo @JvmOverloads constructor(
                 })
             }
 
-            duration = 1000L
+            duration = 300L
 
             start()
         }
