@@ -45,8 +45,8 @@ class YVideo @JvmOverloads constructor(
     private var vProgress: Float = 0F
     private var hProgress: Float = 0F
 
-    private var startAtY: Float = 0F
     private var startAtX: Float = 0F
+    private var startAtY: Float = 0F
 
     /***/
     private var maxX: Int = 0
@@ -242,8 +242,7 @@ class YVideo @JvmOverloads constructor(
                 }
                 MotionEvent.ACTION_UP -> {
                     if (scrollDirection == VERTICAL_SCROLL) {
-                        val startAt = video.height / 2
-                        val y = video.marginTop + startAt
+                        val y = video.marginTop + startAtY
 
                         val mOldY = oldY
                         val mNewY = newY
@@ -264,20 +263,19 @@ class YVideo @JvmOverloads constructor(
                             _onReleased(y <= middle)
                         }
                     } else if (scrollDirection == HORIZONTAL_SCROLL) {
-                        val startAt = video.width / 2
                         val middle = containerVideo.width / 3
-                        val x = video.marginStart + startAt
+                        val x = video.marginStart + video.layoutParams.width / 2 //A metade do video é quem diz se ele vai ser eliminado ou nao
 
                         if (x < middle) {
                             dismiss()
                         } else {
-                            _onReleased(false)
+//                            _onReleased(false)
                         }
                     }
 
                     oldX = null
                     oldY = null
-                    oldY = null
+                    newX = null
                     newY = null
                     scrollDirection = -1
                     false
@@ -344,43 +342,27 @@ class YVideo @JvmOverloads constructor(
     }
 
     private fun animateToState(expand: Boolean) {
-        val mScrollDirection = if (scrollDirection == -1) VERTICAL_SCROLL else scrollDirection
-        val initialProgress = if (scrollDirection == VERTICAL_SCROLL) vProgress else 0F
+        if(scrollDirection != -1) {
+            val mScrollDirection = scrollDirection
+            val initialProgress = if (scrollDirection == VERTICAL_SCROLL) vProgress else hProgress
 
-        val endAt = if (expand) 0F else 1F
+            val endAt = if (expand || mScrollDirection == HORIZONTAL_SCROLL) 0F else 1F
 
-        val lp = video.layoutParams as LayoutParams
+            ValueAnimator.ofFloat(initialProgress, endAt).apply {
+                addUpdateListener {
+                    val progress = it.animatedValue as Float
 
-        ValueAnimator.ofFloat(initialProgress, endAt).apply {
-            addUpdateListener {
-                val progress = it.animatedValue as Float
-
-                if (mScrollDirection == VERTICAL_SCROLL) {
-
-                    lp.setMargins(
-                        (progress * maxX).toInt(),
-                        (progress * maxY).toInt(),
-                        (progress * endMarginEnd).toInt(),
-                        (progress * endMarginBottom).toInt()
-                    )
-
-                    videoDetails.alpha = 1F - progress * 1F
-                } else {
-
-                    lp.setMargins(
-                        (maxX - shiftBy) + (progress * shiftBy).toInt(),
-                        maxY,
-                        (shiftBy + endMarginEnd).toInt() - (progress * shiftBy).toInt(),
-                        endMarginBottom.toInt()
-                    )
+                    if (mScrollDirection == VERTICAL_SCROLL) {
+                        _trackVertical(progress)
+                    } else {
+                        _trackHorizontal(progress)
+                    }
                 }
 
-                video.layoutParams = lp
+                duration = 300L
+
+                start()
             }
-
-            duration = 300L
-
-            start()
         }
     }
 }
