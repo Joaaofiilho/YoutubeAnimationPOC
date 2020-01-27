@@ -188,30 +188,33 @@ class YVideo @JvmOverloads constructor(
                     val y = (video.marginTop + event.y - startAtY).toInt()
 
                     //Discovering in which direction the user is scrolling
-                    if (isExpanded) {
-                        scrollDirection = VERTICAL_SCROLL
-                    } else {
-
-                        val mOldX = oldX
-                        val mNewX = newX
-
-                        val diffX = if (mOldX != null && mNewX != null) {
-                            (mOldX - mNewX).absoluteValue
+                    if(scrollDirection == -1 ) {
+                        if (isExpanded) {
+                            scrollDirection = VERTICAL_SCROLL
                         } else {
-                            null
-                        }
 
-                        val mOldY = oldY
-                        val mNewY = newY
+                            val mOldX = oldX
+                            val mNewX = newX
 
-                        val diffY = if (mOldY != null && mNewY != null) {
-                            (mOldY - mNewY).absoluteValue
-                        } else {
-                            null
-                        }
+                            val diffX = if (mOldX != null && mNewX != null) {
+                                val auxDiff = mOldX - mNewX
+                                Log.v("OLD_X", "oldX: $mOldX newX: $mNewX diff: ${mOldX - mNewX})")
+                                if (auxDiff < 0) scrollDirection = VERTICAL_SCROLL
+                                (auxDiff).absoluteValue
+                            } else {
+                                null
+                            }
 
-                        if (scrollDirection == -1) {
-                            if (diffX != null && diffY != null) {
+                            val mOldY = oldY
+                            val mNewY = newY
+
+                            val diffY = if (mOldY != null && mNewY != null) {
+                                (mOldY - mNewY).absoluteValue
+                            } else {
+                                null
+                            }
+
+                            if (scrollDirection == -1 && diffX != null && diffY != null) {
                                 scrollDirection = when {
                                     diffX > diffY -> HORIZONTAL_SCROLL
                                     diffX < diffY -> VERTICAL_SCROLL
@@ -269,17 +272,27 @@ class YVideo @JvmOverloads constructor(
                             null
                         }
 
+                        val middle = containerVideo.height / 2
                         if (diff != null) {
                             if(diff.absoluteValue >= forceToInvertState) {
                                 if (isExpanded) {
-                                    _onSwipeDown()
+                                    if(diff < 0) {
+                                        _onSwipeDown()
+                                    } else {
+                                        _onReleased(y <= middle)
+                                    }
                                 } else {
-                                    _onSwipeUp()
+                                    if(diff > 0) {
+                                        _onSwipeUp()
+                                    } else {
+                                        _onReleased(y <= middle)
+                                    }
                                 }
-                            } else if(event.y > payload) { //Ele só dá release se o usuário moveu a quantidade mínima
-                                val middle = containerVideo.height / 2
+                            } else {
                                 _onReleased(y <= middle)
                             }
+                        } else { //Ele só dá release se o usuário moveu a quantidade mínima
+                            _onReleased(y <= middle)
                         }
                     } else if (scrollDirection == HORIZONTAL_SCROLL) {
                         val middle = containerVideo.width / 3
@@ -287,7 +300,7 @@ class YVideo @JvmOverloads constructor(
 
                         if (x < middle) {
                             dismiss()
-                        } else if(event.x > payload) {
+                        } else {
                             _onReleased(false)
                         }
                     }
@@ -387,7 +400,7 @@ class YVideo @JvmOverloads constructor(
                     }
                 })
 
-                duration = 300L
+                duration = 230L
 
                 start()
             }
