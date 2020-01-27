@@ -1,5 +1,7 @@
 package com.joaaofiilho.animationpoc
 
+import android.animation.Animator
+import android.animation.AnimatorListenerAdapter
 import android.animation.ValueAnimator
 import android.content.Context
 import android.graphics.Canvas
@@ -10,6 +12,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.widget.MediaController
 import androidx.constraintlayout.widget.ConstraintLayout
+import androidx.core.animation.addListener
 import androidx.core.view.marginStart
 import androidx.core.view.marginTop
 import kotlinx.android.synthetic.main.fragment_video.view.*
@@ -102,6 +105,9 @@ class YVideo @JvmOverloads constructor(
     fun show() {
         isExpanded = true
         visibility = View.VISIBLE
+        animateToState(false, HORIZONTAL_SCROLL) {
+            animateToState(true, VERTICAL_SCROLL)
+        }
     }
 
     fun dismiss() {
@@ -241,6 +247,17 @@ class YVideo @JvmOverloads constructor(
                     true
                 }
                 MotionEvent.ACTION_UP -> {
+                    //how much drag should be given to the video starts scrolling
+                    var payload = if (scrollDirection == VERTICAL_SCROLL) {
+                        video.height / 4
+                    } else {
+                        video.width / 4
+                    }
+
+                    if (!isExpanded) {
+                        payload *= -1
+                    }
+
                     if (scrollDirection == VERTICAL_SCROLL) {
                         val y = video.marginTop + startAtY
 
@@ -252,15 +269,17 @@ class YVideo @JvmOverloads constructor(
                             null
                         }
 
-                        if (diff != null && diff.absoluteValue > forceToInvertState) {
-                            if (isExpanded) {
-                                _onSwipeDown()
-                            } else {
-                                _onSwipeUp()
+                        if (diff != null) {
+                            if(diff.absoluteValue >= forceToInvertState) {
+                                if (isExpanded) {
+                                    _onSwipeDown()
+                                } else {
+                                    _onSwipeUp()
+                                }
+                            } else if(event.y > payload) { //Ele só dá release se o usuário moveu a quantidade mínima
+                                val middle = containerVideo.height / 2
+                                _onReleased(y <= middle)
                             }
-                        } else {
-                            val middle = containerVideo.height / 2
-                            _onReleased(y <= middle)
                         }
                     } else if (scrollDirection == HORIZONTAL_SCROLL) {
                         val middle = containerVideo.width / 3
@@ -268,8 +287,8 @@ class YVideo @JvmOverloads constructor(
 
                         if (x < middle) {
                             dismiss()
-                        } else {
-//                            _onReleased(false)
+                        } else if(event.x > payload) {
+                            _onReleased(false)
                         }
                     }
 
@@ -341,9 +360,9 @@ class YVideo @JvmOverloads constructor(
         _onReleased = event
     }
 
-    private fun animateToState(expand: Boolean) {
-        if(scrollDirection != -1) {
-            val mScrollDirection = scrollDirection
+    private fun animateToState(expand: Boolean, direction: Int? = null, onEndAnimation: (() -> Unit)? = null) {
+        if(scrollDirection != -1 || direction != null) {
+            val mScrollDirection = direction?.let { it } ?: scrollDirection
             val initialProgress = if (scrollDirection == VERTICAL_SCROLL) vProgress else hProgress
 
             val endAt = if (expand || mScrollDirection == HORIZONTAL_SCROLL) 0F else 1F
@@ -353,11 +372,20 @@ class YVideo @JvmOverloads constructor(
                     val progress = it.animatedValue as Float
 
                     if (mScrollDirection == VERTICAL_SCROLL) {
+                        vProgress = progress
                         _trackVertical(progress)
                     } else {
+                        hProgress = progress
                         _trackHorizontal(progress)
                     }
                 }
+
+                addListener(object: AnimatorListenerAdapter() {
+                    override fun onAnimationEnd(animation: Animator?, isReverse: Boolean) {
+                        super.onAnimationEnd(animation, isReverse)
+                        onEndAnimation?.invoke()
+                    }
+                })
 
                 duration = 300L
 
